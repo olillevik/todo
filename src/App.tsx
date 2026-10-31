@@ -1,18 +1,35 @@
 import { useEffect, useState } from "react";
+import "./App.css";
+import { LoginForm } from "./LoginForm";
+import { TodoList, type Column } from "./TodoList";
+
+type View = { status: "checking" } | { status: "logged-out" } | { status: "logged-in"; columns: Column[] };
 
 export function App() {
-  const [reply, setReply] = useState("");
+  const [view, setView] = useState<View>({ status: "checking" });
+
+  function loadTodoList() {
+    fetch("/api/todo-list")
+      .then(async (response) => {
+        if (!response.ok) {
+          setView({ status: "logged-out" });
+          return;
+        }
+        const body = (await response.json()) as { columns: Column[] };
+        setView({ status: "logged-in", columns: body.columns });
+      })
+      .catch(() => setView({ status: "logged-out" }));
+  }
 
   useEffect(() => {
-    fetch("/api/hello")
-      .then((response) => response.json())
-      .then((body: { message: string }) => setReply(body.message));
+    loadTodoList();
   }, []);
 
   return (
     <main>
       <h1>Todo</h1>
-      <p>{reply}</p>
+      {view.status === "logged-out" && <LoginForm onLoggedIn={loadTodoList} />}
+      {view.status === "logged-in" && <TodoList columns={view.columns} />}
     </main>
   );
 }
