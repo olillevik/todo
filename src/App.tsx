@@ -25,12 +25,16 @@ export function App() {
     loadTodoList();
   }, []);
 
+  function showColumns(columns: Column[]) {
+    setView({ status: "logged-in", columns });
+  }
+
   return (
     <main>
       <h1>Todo</h1>
       {view.status === "logged-out" && <LoginForm onLoggedIn={loadTodoList} />}
       {view.status === "logged-in" && (
-        <TodoList columns={view.columns} onItemAdded={(columns) => setView({ status: "logged-in", columns })} />
+        <TodoList columns={view.columns} onItemAdded={showColumns} onItemMoved={showColumns} />
       )}
     </main>
   );

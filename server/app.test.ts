@@ -179,15 +179,19 @@ function postItem(baseUrl: string, cookie: string, body: string): Promise<Respon
   });
 }
 
+// The board with the given descriptions in each column, in order. The server picks each item's id,
+// so the expected board accepts any string there, and the move tests read real ids from replies.
+function boardWith(columns: { Todo?: string[]; Doing?: string[]; Done?: string[] }) {
+  const column = (name: "Todo" | "Doing" | "Done") => ({
+    name,
+    items: (columns[name] ?? []).map((description) => ({ id: expect.any(String), description })),
+  });
+  return { columns: [column("Todo"), column("Doing"), column("Done")] };
+}
+
 // The board after the given descriptions were added to Todo, in order.
 function boardWithTodo(descriptions: string[]) {
-  return {
-    columns: [
-      { name: "Todo", items: descriptions.map((description) => ({ description })) },
-      { name: "Doing", items: [] },
-      { name: "Done", items: [] },
-    ],
-  };
+  return boardWith({ Todo: descriptions });
 }
 
 describe("add item", () => {
@@ -311,6 +315,220 @@ describe("add item", () => {
 
       const board = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
       expect(await board.json()).toEqual(boardWithTodo([]));
+    } finally {
+      await close(server);
+    }
+  });
+});
+
+function postMove(baseUrl: string, cookie: string, itemId: string, column: string): Promise<Response> {
+  return fetch(`${baseUrl}/api/todo-list/items/${itemId}/move`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: cookie },
+    body: JSON.stringify({ column }),
+  });
+}
+
+type BoardReply = { columns: { name: string; items: { id: string; description: string }[] }[] };
+
+// The id the server gave the item with this description, read from a board reply.
+function idOf(board: BoardReply, description: string): string {
+  const found = board.columns.flatMap((column) => column.items).find((candidate) => candidate.description === description);
+  if (!found) throw new Error(`no item with description "${description}"`);
+  return found.id;
+}
+
+// The name of the column that holds the item with this id, read from a board reply.
+function columnOf(board: BoardReply, id: string): string | undefined {
+  return board.columns.find((column) => column.items.some((item) => item.id === id))?.name;
+}
+
+describe("move item", () => {
+  it("POST /api/todo-list/items/:id/move moves the item to the bottom of another column, keeps its id, and replies with the board", async () => {
+    const server = createServer();
+    const baseUrl = await listen(server);
+
+    try {
+      const login = await postLogin(
+        baseUrl,
+        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
+      );
+      const cookie = sessionCookieFrom(login);
+      const added = await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }));
+      const id = idOf(await added.json(), "Buy milk");
+
+      const moved = await postMove(baseUrl, cookie, id, "Doing");
+
+      expect(moved.status).toBe(200);
+      const movedBoard = await moved.json();
+      expect(movedBoard).toEqual(boardWith({ Doing: ["Buy milk"] }));
+      expect(movedBoard.columns[1].items[0].id).toBe(id);
+
+      const response = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
+      expect(await response.json()).toEqual(boardWith({ Doing: ["Buy milk"] }));
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("an item moved into a column that already has items goes below them", async () => {
+    const server = createServer();
+    const baseUrl = await listen(server);
+
+    try {
+      const login = await postLogin(
+        baseUrl,
+        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
+      );
+      const cookie = sessionCookieFrom(login);
+      const first = idOf(
+        await (await postItem(baseUrl, cookie, JSON.stringify({ description: "Write report" }))).json(),
+        "Write report",
+      );
+      const second = idOf(
+        await (await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }))).json(),
+        "Buy milk",
+      );
+      await postMove(baseUrl, cookie, first, "Doing");
+
+      const moved = await postMove(baseUrl, cookie, second, "Doing");
+
+      expect(await moved.json()).toEqual(boardWith({ Doing: ["Write report", "Buy milk"] }));
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("moving an item to the column it is already in changes nothing, order included", async () => {
+    const server = createServer();
+    const baseUrl = await listen(server);
+
+    try {
+      const login = await postLogin(
+        baseUrl,
+        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
+      );
+      const cookie = sessionCookieFrom(login);
+      await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }));
+      const added = await postItem(baseUrl, cookie, JSON.stringify({ description: "Walk dog" }));
+      const first = idOf(await added.json(), "Buy milk");
+
+      const moved = await postMove(baseUrl, cookie, first, "Todo");
+
+      expect(moved.status).toBe(200);
+      expect(await moved.json()).toEqual(boardWithTodo(["Buy milk", "Walk dog"]));
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("an item can move from any column to any other, including backwards", async () => {
+    const server = createServer();
+    const baseUrl = await listen(server);
+
+    try {
+      const login = await postLogin(
+        baseUrl,
+        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
+      );
+      const cookie = sessionCookieFrom(login);
+      const added = await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }));
+      const id = idOf(await added.json(), "Buy milk");
+
+      // Todo to Doing, Doing to Done, Done back to Todo, Todo to Done, Done back to Doing, Doing back to Todo.
+      // Together these cover all six directed pairs of the three columns.
+      for (const column of ["Doing", "Done", "Todo", "Done", "Doing", "Todo"]) {
+        const moved = await postMove(baseUrl, cookie, id, column);
+
+        expect(moved.status).toBe(200);
+        expect(columnOf(await moved.json(), id)).toBe(column);
+      }
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("moving without a valid session replies 401 and moves nothing", async () => {
+    const server = createServer();
+    const baseUrl = await listen(server);
+
+    try {
+      const login = await postLogin(
+        baseUrl,
+        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
+      );
+      const cookie = sessionCookieFrom(login);
+      const added = await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }));
+      const id = idOf(await added.json(), "Buy milk");
+      const body = JSON.stringify({ column: "Done" });
+
+      const noCookie = await fetch(`${baseUrl}/api/todo-list/items/${id}/move`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+      expect(noCookie.status).toBe(401);
+
+      const unknownCookie = await postMove(baseUrl, "session=not-a-real-token", id, "Done");
+      expect(unknownCookie.status).toBe(401);
+
+      const board = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
+      expect(await board.json()).toEqual(boardWithTodo(["Buy milk"]));
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("moving an item id that is not on the list replies 404 and moves nothing", async () => {
+    const server = createServer();
+    const baseUrl = await listen(server);
+
+    try {
+      const login = await postLogin(
+        baseUrl,
+        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
+      );
+      const cookie = sessionCookieFrom(login);
+      await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }));
+
+      const response = await postMove(baseUrl, cookie, "not-a-real-item", "Done");
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: "Item not found" });
+      const board = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
+      expect(await board.json()).toEqual(boardWithTodo(["Buy milk"]));
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("moving to a name that is not a column, or with no column, replies 400 and moves nothing", async () => {
+    const server = createServer();
+    const baseUrl = await listen(server);
+
+    try {
+      const login = await postLogin(
+        baseUrl,
+        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
+      );
+      const cookie = sessionCookieFrom(login);
+      const added = await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }));
+      const id = idOf(await added.json(), "Buy milk");
+
+      const unknownColumn = await postMove(baseUrl, cookie, id, "Archive");
+      expect(unknownColumn.status).toBe(400);
+      expect(await unknownColumn.json()).toEqual({ error: "Unknown column" });
+
+      const noColumn = await fetch(`${baseUrl}/api/todo-list/items/${id}/move`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: cookie },
+        body: JSON.stringify({}),
+      });
+      expect(noColumn.status).toBe(400);
+      expect(await noColumn.json()).toEqual({ error: "Unknown column" });
+
+      const board = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
+      expect(await board.json()).toEqual(boardWithTodo(["Buy milk"]));
     } finally {
       await close(server);
     }

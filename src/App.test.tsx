@@ -105,35 +105,62 @@ it("a page reload with a valid session shows the todo list without the login for
   expect(fetchMock).toHaveBeenCalledWith("/api/todo-list");
 });
 
-// The board the server would return for these Todo descriptions, in order.
-function boardWithTodo(descriptions: string[], status = 200) {
-  return Response.json(
-    {
-      columns: [
-        { name: "Todo", items: descriptions.map((description) => ({ description })) },
-        { name: "Doing", items: [] },
-        { name: "Done", items: [] },
-      ],
-    },
-    { status },
-  );
-}
+const COLUMN_NAMES = ["Todo", "Doing", "Done"] as const;
+type ColumnName = (typeof COLUMN_NAMES)[number];
+type FakeItem = { id: string; description: string };
 
-// Fake server for the add-item tests: the board lives in `todo` and POST adds to its end.
-function stubBoardApi(todo: string[], rejectWith?: { status: number; error: string }) {
+// Fake server for the board tests. `initial` gives each column's descriptions in order, and every
+// item gets an id. POST adds to the end of Todo, and a move request puts the item at the end of its
+// target column.
+function stubBoardApi(
+  initial: Partial<Record<ColumnName, string[]>>,
+  options: {
+    rejectAdd?: { status: number; error: string };
+    rejectMove?: { status: number; error: string };
+  } = {},
+) {
+  let nextId = 1;
+  const newItem = (description: string): FakeItem => ({ id: `item-${nextId++}`, description });
+  const board = Object.fromEntries(
+    COLUMN_NAMES.map((name) => [name, (initial[name] ?? []).map(newItem)]),
+  ) as Record<ColumnName, FakeItem[]>;
+  const boardResponse = (status = 200) =>
+    Response.json({ columns: COLUMN_NAMES.map((name) => ({ name, items: board[name] })) }, { status });
+
   return stubApi((url, init) => {
-    if (url === "/api/todo-list") return boardWithTodo(todo);
+    if (url === "/api/todo-list") return boardResponse();
+
     if (url === "/api/todo-list/items" && init?.method === "POST") {
-      if (rejectWith) return Response.json({ error: rejectWith.error }, { status: rejectWith.status });
-      todo.push((JSON.parse(init.body as string) as { description: string }).description);
-      return boardWithTodo(todo, 201);
+      if (options.rejectAdd) {
+        return Response.json({ error: options.rejectAdd.error }, { status: options.rejectAdd.status });
+      }
+      board.Todo.push(newItem((JSON.parse(init.body as string) as { description: string }).description));
+      return boardResponse(201);
     }
+
+    const move = /^\/api\/todo-list\/items\/([^/]+)\/move$/.exec(url);
+    if (move && init?.method === "POST") {
+      if (options.rejectMove) {
+        return Response.json({ error: options.rejectMove.error }, { status: options.rejectMove.status });
+      }
+      const itemId = move[1];
+      const target = (JSON.parse(init.body as string) as { column: ColumnName }).column;
+      const source = COLUMN_NAMES.find((name) => board[name].some((item) => item.id === itemId));
+      if (!source) return Response.json({ error: "Item not found" }, { status: 404 });
+      if (source !== target) {
+        const item = board[source].find((candidate) => candidate.id === itemId)!;
+        board[source] = board[source].filter((candidate) => candidate !== item);
+        board[target].push(item);
+      }
+      return boardResponse();
+    }
+
     throw new Error(`unexpected request to ${url}`);
   });
 }
 
 it("the Todo column has a Description field and an Add button above its items; adding an item shows it in Todo and clears the field", async () => {
-  stubBoardApi([]);
+  stubBoardApi({});
 
   render(<App />);
   const todoColumn = await screen.findByRole("region", { name: "Todo" });
@@ -149,7 +176,7 @@ it("the Todo column has a Description field and an Add button above its items; a
 });
 
 it("a new item appears at the bottom of Todo, below the items already there", async () => {
-  stubBoardApi(["Buy milk"]);
+  stubBoardApi({ Todo: ["Buy milk"] });
 
   render(<App />);
   const todoColumn = await screen.findByRole("region", { name: "Todo" });
@@ -165,7 +192,7 @@ it("a new item appears at the bottom of Todo, below the items already there", as
 });
 
 it("a blank description is rejected with the server's message, adds no item, and keeps the typed text", async () => {
-  stubBoardApi([], { status: 400, error: "Description is required" });
+  stubBoardApi({}, { rejectAdd: { status: 400, error: "Description is required" } });
 
   render(<App />);
   const todoColumn = await screen.findByRole("region", { name: "Todo" });
@@ -177,4 +204,106 @@ it("a blank description is rejected with the server's message, adds no item, and
   expect(alert.textContent).toBe("Description is required");
   expect(within(todoColumn).queryAllByRole("listitem")).toHaveLength(0);
   expect(field.value).toBe("   ");
+});
+
+function regionFor(columnName: string): HTMLElement {
+  return screen.getByRole("region", { name: columnName });
+}
+
+// The descriptions shown in one column, in order.
+function itemsIn(columnName: string): (string | null)[] {
+  return within(regionFor(columnName))
+    .queryAllByRole("listitem")
+    .map((item) => item.textContent);
+}
+
+// Lets pending handlers and fetch promises settle before a "nothing happened" check.
+const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+function moveRequests(fetchMock: ReturnType<typeof stubApi>) {
+  return fetchMock.mock.calls.filter(([url]) => url.includes("/move"));
+}
+
+// A stand-in for the browser's DataTransfer, which jsdom does not provide. One instance is shared
+// by every event of a single drag, so data set on dragstart can be read on drop.
+function fakeDataTransfer() {
+  const data = new Map<string, string>();
+  return {
+    dropEffect: "none",
+    effectAllowed: "uninitialized",
+    setData: (type: string, value: string) => {
+      data.set(type, value);
+    },
+    getData: (type: string) => data.get(type) ?? "",
+  };
+}
+
+// Drags the item with this description out of its column and releases it on `dropOn`.
+function dragItem(description: string, fromColumn: string, dropOn: HTMLElement) {
+  const item = within(regionFor(fromColumn)).getByText(description);
+  const dataTransfer = fakeDataTransfer();
+  fireEvent.dragStart(item, { dataTransfer });
+  fireEvent.dragOver(dropOn, { dataTransfer });
+  fireEvent.drop(dropOn, { dataTransfer });
+  fireEvent.dragEnd(item, { dataTransfer });
+}
+
+it("dragging an item onto another column moves it to the bottom of that column", async () => {
+  stubBoardApi({ Todo: ["Buy milk"], Doing: ["Write report"] });
+
+  render(<App />);
+  await within(await screen.findByRole("region", { name: "Todo" })).findByText("Buy milk");
+  dragItem("Buy milk", "Todo", regionFor("Doing"));
+
+  await waitFor(() => expect(itemsIn("Doing")).toEqual(["Write report", "Buy milk"]));
+  expect(itemsIn("Todo")).toEqual([]);
+});
+
+it("dragging an item back from Done to Todo moves it to the bottom of Todo", async () => {
+  stubBoardApi({ Todo: ["Buy milk"], Done: ["Walk dog"] });
+
+  render(<App />);
+  await within(await screen.findByRole("region", { name: "Todo" })).findByText("Buy milk");
+  dragItem("Walk dog", "Done", regionFor("Todo"));
+
+  await waitFor(() => expect(itemsIn("Todo")).toEqual(["Buy milk", "Walk dog"]));
+  expect(itemsIn("Done")).toEqual([]);
+});
+
+it("dropping an item on its own column leaves it in place and sends no move", async () => {
+  const fetchMock = stubBoardApi({ Todo: ["Buy milk", "Walk dog"] });
+
+  render(<App />);
+  await within(await screen.findByRole("region", { name: "Todo" })).findByText("Walk dog");
+  dragItem("Buy milk", "Todo", regionFor("Todo"));
+  await flushPromises();
+
+  expect(itemsIn("Todo")).toEqual(["Buy milk", "Walk dog"]);
+  expect(moveRequests(fetchMock)).toEqual([]);
+});
+
+it("dropping an item outside every column leaves it in place and sends no move", async () => {
+  const fetchMock = stubBoardApi({ Todo: ["Buy milk"], Doing: ["Write report"] });
+
+  render(<App />);
+  await within(await screen.findByRole("region", { name: "Todo" })).findByText("Buy milk");
+  dragItem("Buy milk", "Todo", screen.getByRole("main"));
+  await flushPromises();
+
+  expect(itemsIn("Todo")).toEqual(["Buy milk"]);
+  expect(itemsIn("Doing")).toEqual(["Write report"]);
+  expect(moveRequests(fetchMock)).toEqual([]);
+});
+
+it("a move the server rejects shows a message and leaves the item where it was", async () => {
+  stubBoardApi({ Todo: ["Buy milk"] }, { rejectMove: { status: 401, error: "Not logged in" } });
+
+  render(<App />);
+  await within(await screen.findByRole("region", { name: "Todo" })).findByText("Buy milk");
+  dragItem("Buy milk", "Todo", regionFor("Doing"));
+
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toBe("Could not move item. Try again.");
+  expect(itemsIn("Todo")).toEqual(["Buy milk"]);
+  expect(itemsIn("Doing")).toEqual([]);
 });

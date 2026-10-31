@@ -1,10 +1,11 @@
 import http from "node:http";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { isValidLogin } from "./auth";
 
 const COLUMN_NAMES = ["Todo", "Doing", "Done"];
 
-type Item = { description: string };
+// The id is internal to the server: it gives a move a stable target, since an item's position changes.
+type Item = { id: string; description: string };
 type Column = { name: string; items: Item[] };
 
 function readJson(req: http.IncomingMessage): Promise<unknown> {
@@ -99,8 +100,36 @@ export function createServer(): http.Server {
         return;
       }
 
-      todoList.columns[0].items.push({ description: description.trim() });
+      todoList.columns[0].items.push({ id: randomUUID(), description: description.trim() });
       sendJson(res, 201, todoList);
+      return;
+    }
+
+    const move = /^\/api\/todo-list\/items\/([^/]+)\/move$/.exec(req.url ?? "");
+    if (req.method === "POST" && move) {
+      if (!hasSession(req)) {
+        sendJson(res, 401, { error: "Not logged in" });
+        return;
+      }
+
+      const itemId = move[1];
+      const body: unknown = await readJson(req).catch(() => null);
+      const { column } = (body ?? {}) as { column?: string };
+      const source = todoList.columns.find((candidate) => candidate.items.some((item) => item.id === itemId));
+      if (!source) {
+        sendJson(res, 404, { error: "Item not found" });
+        return;
+      }
+      const target = todoList.columns.find((candidate) => candidate.name === column);
+      if (!target) {
+        sendJson(res, 400, { error: "Unknown column" });
+        return;
+      }
+      if (source !== target) {
+        const index = source.items.findIndex((item) => item.id === itemId);
+        target.items.push(...source.items.splice(index, 1));
+      }
+      sendJson(res, 200, todoList);
       return;
     }
 
