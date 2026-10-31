@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { login } from "./api";
 
 const INVALID_LOGIN = "Invalid username or password";
 const LOGIN_FAILED = "Could not log in. Try again.";
@@ -9,17 +10,13 @@ export function LoginForm({ onLoggedIn }: { onLoggedIn: () => void }) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const response = await fetch("/api/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: form.get("username"), password: form.get("password") }),
-    }).catch(() => null);
+    const result = await login(String(form.get("username") ?? ""), String(form.get("password") ?? ""));
 
-    if (response?.ok) {
+    if (result.ok) {
       onLoggedIn();
       return;
     }
-    setError(response?.status === 401 ? INVALID_LOGIN : LOGIN_FAILED);
+    setError(result.status === 401 ? INVALID_LOGIN : LOGIN_FAILED);
   }
 
   return (

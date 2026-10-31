@@ -1,6 +1,6 @@
 # Todo
 
-A todo board where a user logs in to see one todo list and move its items between columns. The browser UI is React + TypeScript, and it calls a Node JSON API.
+A todo list app where a user logs in to see one todo list and move its items between columns. The browser UI is React + TypeScript, and it calls a Node JSON API.
 
 ## Run locally
 

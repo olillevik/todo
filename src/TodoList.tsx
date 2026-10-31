@@ -1,36 +1,37 @@
 import { useState, type DragEvent } from "react";
 import { AddItemForm } from "./AddItemForm";
-
-export type Item = { id: string; description: string };
-export type Column = { name: string; items: Item[] };
+import { moveItem, type Column, type ColumnName } from "./api";
 
 const MOVE_FAILED = "Could not move item. Try again.";
 // Carries the dragged item's id. A custom type stops browsers from inserting the id as text when
 // the item is dropped somewhere that accepts text.
-const ITEM_DRAG_TYPE = "application/x-todo-item";
+const ITEM_DRAG_TYPE = "application/x-item-id";
+// The add form sits at the top of this column, and new items go to its bottom.
+const ADD_COLUMN: ColumnName = "Todo";
 
 export function TodoList({
   columns,
   onItemAdded,
   onItemMoved,
+  onSessionEnded,
 }: {
   columns: Column[];
   onItemAdded: (columns: Column[]) => void;
   onItemMoved: (columns: Column[]) => void;
+  onSessionEnded: () => void;
 }) {
   const [moveError, setMoveError] = useState("");
 
-  async function moveItem(itemId: string, columnName: string) {
-    const response = await fetch(`/api/todo-list/items/${itemId}/move`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ column: columnName }),
-    }).catch(() => null);
+  async function requestMove(itemId: string, column: ColumnName) {
+    const result = await moveItem(itemId, column);
 
-    if (response?.ok) {
-      const body = (await response.json()) as { columns: Column[] };
+    if (result.ok) {
       setMoveError("");
-      onItemMoved(body.columns);
+      onItemMoved(result.columns);
+      return;
+    }
+    if (result.status === 401) {
+      onSessionEnded();
       return;
     }
     setMoveError(MOVE_FAILED);
@@ -42,13 +43,13 @@ export function TodoList({
     const source = columns.find((column) => column.items.some((item) => item.id === itemId));
     // Nothing moves for something that is not an item on this list, or for a drop on the item's own column.
     if (!source || source.name === target.name) return;
-    void moveItem(itemId, target.name);
+    void requestMove(itemId, target.name);
   }
 
   return (
     <>
       {moveError && <p role="alert">{moveError}</p>}
-      <div className="board">
+      <div className="todo-list">
         {columns.map((column) => (
           <section
             key={column.name}
@@ -61,7 +62,7 @@ export function TodoList({
             onDrop={(event) => handleDrop(event, column)}
           >
             <h2>{column.name}</h2>
-            {column.name === "Todo" && <AddItemForm onAdded={onItemAdded} />}
+            {column.name === ADD_COLUMN && <AddItemForm onAdded={onItemAdded} onSessionEnded={onSessionEnded} />}
             <ul>
               {column.items.map((item) => (
                 <li

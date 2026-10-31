@@ -22,8 +22,12 @@ function postLogin(baseUrl: string, body: string): Promise<Response> {
   });
 }
 
-// Returns the "session=<token>" pair from a login response, ready to send back as a Cookie header.
-function sessionCookieFrom(response: Response): string {
+// Logs in as the test account and returns the "session=<token>" pair, ready to send back as a Cookie header.
+async function loginCookie(baseUrl: string): Promise<string> {
+  const response = await postLogin(
+    baseUrl,
+    JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
+  );
   const setCookie = response.headers.get("set-cookie") ?? "";
   return setCookie.split(";")[0];
 }
@@ -125,12 +129,9 @@ describe("todo list", () => {
     const baseUrl = await listen(server);
 
     try {
-      const login = await postLogin(
-        baseUrl,
-        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
-      );
+      const cookie = await loginCookie(baseUrl);
       const response = await fetch(`${baseUrl}/api/todo-list`, {
-        headers: { Cookie: sessionCookieFrom(login) },
+        headers: { Cookie: cookie },
       });
 
       expect(response.status).toBe(200);
@@ -149,11 +150,7 @@ describe("todo list", () => {
   it("a session ends when the server restarts", async () => {
     const first = createServer();
     const firstUrl = await listen(first);
-    const login = await postLogin(
-      firstUrl,
-      JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
-    );
-    const cookie = sessionCookieFrom(login);
+    const cookie = await loginCookie(firstUrl);
     await close(first);
 
     const restarted = createServer();
@@ -179,9 +176,9 @@ function postItem(baseUrl: string, cookie: string, body: string): Promise<Respon
   });
 }
 
-// The board with the given descriptions in each column, in order. The server picks each item's id,
-// so the expected board accepts any string there, and the move tests read real ids from replies.
-function boardWith(columns: { Todo?: string[]; Doing?: string[]; Done?: string[] }) {
+// The todo list with the given descriptions in each column, in order. The server picks each item's id,
+// so the expected todo list accepts any string there, and the move tests read real ids from replies.
+function todoListWith(columns: { Todo?: string[]; Doing?: string[]; Done?: string[] }) {
   const column = (name: "Todo" | "Doing" | "Done") => ({
     name,
     items: (columns[name] ?? []).map((description) => ({ id: expect.any(String), description })),
@@ -189,30 +186,26 @@ function boardWith(columns: { Todo?: string[]; Doing?: string[]; Done?: string[]
   return { columns: [column("Todo"), column("Doing"), column("Done")] };
 }
 
-// The board after the given descriptions were added to Todo, in order.
-function boardWithTodo(descriptions: string[]) {
-  return boardWith({ Todo: descriptions });
+// The todo list after the given descriptions were added to Todo, in order.
+function todoListWithTodo(descriptions: string[]) {
+  return todoListWith({ Todo: descriptions });
 }
 
 describe("add item", () => {
-  it("POST /api/todo-list/items with a session adds the item to Todo and replies with the board", async () => {
+  it("POST /api/todo-list/items with a session adds the item to Todo and replies with the todo list", async () => {
     const server = createServer();
     const baseUrl = await listen(server);
 
     try {
-      const login = await postLogin(
-        baseUrl,
-        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
-      );
-      const cookie = sessionCookieFrom(login);
+      const cookie = await loginCookie(baseUrl);
 
       const added = await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }));
 
       expect(added.status).toBe(201);
-      expect(await added.json()).toEqual(boardWithTodo(["Buy milk"]));
+      expect(await added.json()).toEqual(todoListWithTodo(["Buy milk"]));
 
       const response = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
-      expect(await response.json()).toEqual(boardWithTodo(["Buy milk"]));
+      expect(await response.json()).toEqual(todoListWithTodo(["Buy milk"]));
     } finally {
       await close(server);
     }
@@ -223,35 +216,27 @@ describe("add item", () => {
     const baseUrl = await listen(server);
 
     try {
-      const login = await postLogin(
-        baseUrl,
-        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
-      );
-      const cookie = sessionCookieFrom(login);
+      const cookie = await loginCookie(baseUrl);
 
       await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }));
       const added = await postItem(baseUrl, cookie, JSON.stringify({ description: "Walk dog" }));
 
-      expect(await added.json()).toEqual(boardWithTodo(["Buy milk", "Walk dog"]));
+      expect(await added.json()).toEqual(todoListWithTodo(["Buy milk", "Walk dog"]));
     } finally {
       await close(server);
     }
   });
 
-  it("surrounding spaces are trimmed from the description", async () => {
+  it("the description is stored as typed, surrounding spaces included", async () => {
     const server = createServer();
     const baseUrl = await listen(server);
 
     try {
-      const login = await postLogin(
-        baseUrl,
-        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
-      );
-      const cookie = sessionCookieFrom(login);
+      const cookie = await loginCookie(baseUrl);
 
       const added = await postItem(baseUrl, cookie, JSON.stringify({ description: "  Buy milk  " }));
 
-      expect(await added.json()).toEqual(boardWithTodo(["Buy milk"]));
+      expect(await added.json()).toEqual(todoListWithTodo(["  Buy milk  "]));
     } finally {
       await close(server);
     }
@@ -262,11 +247,7 @@ describe("add item", () => {
     const baseUrl = await listen(server);
 
     try {
-      const login = await postLogin(
-        baseUrl,
-        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
-      );
-      const cookie = sessionCookieFrom(login);
+      const cookie = await loginCookie(baseUrl);
 
       const badBodies = [
         JSON.stringify({ description: "" }),
@@ -284,8 +265,8 @@ describe("add item", () => {
         expect(await response.json()).toEqual({ error: "Description is required" });
       }
 
-      const board = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
-      expect(await board.json()).toEqual(boardWithTodo([]));
+      const reply = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
+      expect(await reply.json()).toEqual(todoListWithTodo([]));
     } finally {
       await close(server);
     }
@@ -296,11 +277,7 @@ describe("add item", () => {
     const baseUrl = await listen(server);
 
     try {
-      const login = await postLogin(
-        baseUrl,
-        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
-      );
-      const cookie = sessionCookieFrom(login);
+      const cookie = await loginCookie(baseUrl);
       const body = JSON.stringify({ description: "Buy milk" });
 
       const noCookie = await fetch(`${baseUrl}/api/todo-list/items`, {
@@ -313,8 +290,8 @@ describe("add item", () => {
       const unknownCookie = await postItem(baseUrl, "session=not-a-real-token", body);
       expect(unknownCookie.status).toBe(401);
 
-      const board = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
-      expect(await board.json()).toEqual(boardWithTodo([]));
+      const reply = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
+      expect(await reply.json()).toEqual(todoListWithTodo([]));
     } finally {
       await close(server);
     }
@@ -329,43 +306,39 @@ function postMove(baseUrl: string, cookie: string, itemId: string, column: strin
   });
 }
 
-type BoardReply = { columns: { name: string; items: { id: string; description: string }[] }[] };
+type TodoListReply = { columns: { name: string; items: { id: string; description: string }[] }[] };
 
-// The id the server gave the item with this description, read from a board reply.
-function idOf(board: BoardReply, description: string): string {
-  const found = board.columns.flatMap((column) => column.items).find((candidate) => candidate.description === description);
+// The id the server gave the item with this description, read from a todo list reply.
+function idOf(todoList: TodoListReply, description: string): string {
+  const found = todoList.columns.flatMap((column) => column.items).find((candidate) => candidate.description === description);
   if (!found) throw new Error(`no item with description "${description}"`);
   return found.id;
 }
 
-// The name of the column that holds the item with this id, read from a board reply.
-function columnOf(board: BoardReply, id: string): string | undefined {
-  return board.columns.find((column) => column.items.some((item) => item.id === id))?.name;
+// The name of the column that holds the item with this id, read from a todo list reply.
+function columnOf(todoList: TodoListReply, id: string): string | undefined {
+  return todoList.columns.find((column) => column.items.some((item) => item.id === id))?.name;
 }
 
 describe("move item", () => {
-  it("POST /api/todo-list/items/:id/move moves the item to the bottom of another column, keeps its id, and replies with the board", async () => {
+  it("POST /api/todo-list/items/:id/move moves the item to the bottom of another column, keeps its id, and replies with the todo list", async () => {
     const server = createServer();
     const baseUrl = await listen(server);
 
     try {
-      const login = await postLogin(
-        baseUrl,
-        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
-      );
-      const cookie = sessionCookieFrom(login);
+      const cookie = await loginCookie(baseUrl);
       const added = await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }));
       const id = idOf(await added.json(), "Buy milk");
 
       const moved = await postMove(baseUrl, cookie, id, "Doing");
 
       expect(moved.status).toBe(200);
-      const movedBoard = await moved.json();
-      expect(movedBoard).toEqual(boardWith({ Doing: ["Buy milk"] }));
-      expect(movedBoard.columns[1].items[0].id).toBe(id);
+      const movedTodoList = await moved.json();
+      expect(movedTodoList).toEqual(todoListWith({ Doing: ["Buy milk"] }));
+      expect(movedTodoList.columns[1].items[0].id).toBe(id);
 
-      const response = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
-      expect(await response.json()).toEqual(boardWith({ Doing: ["Buy milk"] }));
+      const reply = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
+      expect(await reply.json()).toEqual(todoListWith({ Doing: ["Buy milk"] }));
     } finally {
       await close(server);
     }
@@ -376,11 +349,7 @@ describe("move item", () => {
     const baseUrl = await listen(server);
 
     try {
-      const login = await postLogin(
-        baseUrl,
-        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
-      );
-      const cookie = sessionCookieFrom(login);
+      const cookie = await loginCookie(baseUrl);
       const first = idOf(
         await (await postItem(baseUrl, cookie, JSON.stringify({ description: "Write report" }))).json(),
         "Write report",
@@ -393,7 +362,7 @@ describe("move item", () => {
 
       const moved = await postMove(baseUrl, cookie, second, "Doing");
 
-      expect(await moved.json()).toEqual(boardWith({ Doing: ["Write report", "Buy milk"] }));
+      expect(await moved.json()).toEqual(todoListWith({ Doing: ["Write report", "Buy milk"] }));
     } finally {
       await close(server);
     }
@@ -404,11 +373,7 @@ describe("move item", () => {
     const baseUrl = await listen(server);
 
     try {
-      const login = await postLogin(
-        baseUrl,
-        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
-      );
-      const cookie = sessionCookieFrom(login);
+      const cookie = await loginCookie(baseUrl);
       await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }));
       const added = await postItem(baseUrl, cookie, JSON.stringify({ description: "Walk dog" }));
       const first = idOf(await added.json(), "Buy milk");
@@ -416,7 +381,7 @@ describe("move item", () => {
       const moved = await postMove(baseUrl, cookie, first, "Todo");
 
       expect(moved.status).toBe(200);
-      expect(await moved.json()).toEqual(boardWithTodo(["Buy milk", "Walk dog"]));
+      expect(await moved.json()).toEqual(todoListWithTodo(["Buy milk", "Walk dog"]));
     } finally {
       await close(server);
     }
@@ -427,11 +392,7 @@ describe("move item", () => {
     const baseUrl = await listen(server);
 
     try {
-      const login = await postLogin(
-        baseUrl,
-        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
-      );
-      const cookie = sessionCookieFrom(login);
+      const cookie = await loginCookie(baseUrl);
       const added = await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }));
       const id = idOf(await added.json(), "Buy milk");
 
@@ -453,11 +414,7 @@ describe("move item", () => {
     const baseUrl = await listen(server);
 
     try {
-      const login = await postLogin(
-        baseUrl,
-        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
-      );
-      const cookie = sessionCookieFrom(login);
+      const cookie = await loginCookie(baseUrl);
       const added = await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }));
       const id = idOf(await added.json(), "Buy milk");
       const body = JSON.stringify({ column: "Done" });
@@ -472,8 +429,8 @@ describe("move item", () => {
       const unknownCookie = await postMove(baseUrl, "session=not-a-real-token", id, "Done");
       expect(unknownCookie.status).toBe(401);
 
-      const board = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
-      expect(await board.json()).toEqual(boardWithTodo(["Buy milk"]));
+      const reply = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
+      expect(await reply.json()).toEqual(todoListWithTodo(["Buy milk"]));
     } finally {
       await close(server);
     }
@@ -484,19 +441,15 @@ describe("move item", () => {
     const baseUrl = await listen(server);
 
     try {
-      const login = await postLogin(
-        baseUrl,
-        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
-      );
-      const cookie = sessionCookieFrom(login);
+      const cookie = await loginCookie(baseUrl);
       await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }));
 
       const response = await postMove(baseUrl, cookie, "not-a-real-item", "Done");
 
       expect(response.status).toBe(404);
       expect(await response.json()).toEqual({ error: "Item not found" });
-      const board = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
-      expect(await board.json()).toEqual(boardWithTodo(["Buy milk"]));
+      const reply = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
+      expect(await reply.json()).toEqual(todoListWithTodo(["Buy milk"]));
     } finally {
       await close(server);
     }
@@ -507,11 +460,7 @@ describe("move item", () => {
     const baseUrl = await listen(server);
 
     try {
-      const login = await postLogin(
-        baseUrl,
-        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
-      );
-      const cookie = sessionCookieFrom(login);
+      const cookie = await loginCookie(baseUrl);
       const added = await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }));
       const id = idOf(await added.json(), "Buy milk");
 
@@ -527,8 +476,8 @@ describe("move item", () => {
       expect(noColumn.status).toBe(400);
       expect(await noColumn.json()).toEqual({ error: "Unknown column" });
 
-      const board = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
-      expect(await board.json()).toEqual(boardWithTodo(["Buy milk"]));
+      const reply = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
+      expect(await reply.json()).toEqual(todoListWithTodo(["Buy milk"]));
     } finally {
       await close(server);
     }

@@ -1,30 +1,33 @@
 import { useState, type FormEvent } from "react";
-import type { Column } from "./TodoList";
+import { addItem, type Column } from "./api";
 
 const ADD_FAILED = "Could not add item. Try again.";
 
-export function AddItemForm({ onAdded }: { onAdded: (columns: Column[]) => void }) {
+export function AddItemForm({
+  onAdded,
+  onSessionEnded,
+}: {
+  onAdded: (columns: Column[]) => void;
+  onSessionEnded: () => void;
+}) {
   const [description, setDescription] = useState("");
   const [error, setError] = useState("");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const response = await fetch("/api/todo-list/items", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ description }),
-    }).catch(() => null);
+    const result = await addItem(description);
 
-    if (response?.ok) {
-      const body = (await response.json()) as { columns: Column[] };
+    if (result.ok) {
       setDescription("");
       setError("");
-      onAdded(body.columns);
+      onAdded(result.columns);
       return;
     }
-
-    const body = response ? ((await response.json().catch(() => null)) as { error?: string } | null) : null;
-    setError(body?.error ?? ADD_FAILED);
+    if (result.status === 401) {
+      onSessionEnded();
+      return;
+    }
+    setError(result.error ?? ADD_FAILED);
   }
 
   return (

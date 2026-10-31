@@ -1,4 +1,4 @@
-.board {
+.todo-list {
   display: flex;
   gap: 16px;
   align-items: flex-start;

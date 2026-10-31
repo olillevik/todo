@@ -1,6 +1,6 @@
 # Todo
 
-A todo board where a user logs in to see one todo list and move its items between columns. User management is deferred.
+A todo list app where a user logs in to see one todo list and move its items between columns. User management is deferred.
 
 ## Language
 

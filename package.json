@@ -1,7 +1,7 @@
 {
   "name": "todo",
   "version": "1.0.0",
-  "description": "Todo board: React UI over a Node JSON API",
+  "description": "Todo list app: React UI over a Node JSON API",
   "scripts": {
     "test": "vitest run",
     "dev:api": "tsx watch server/index.ts",
