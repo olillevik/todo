@@ -68,6 +68,13 @@ it("log in, add an item, move it, and find it after a reload, against the real s
     fireEvent.click(screen.getByRole("button", { name: "Log in" }));
 
     const todo = await screen.findByRole("region", { name: "Todo" });
+    const columns = screen.getAllByRole("region");
+    expect(columns.map((column) => column.getAttribute("aria-label"))).toEqual(["Todo", "Doing", "Done"]);
+    for (const column of columns) {
+      expect(within(column).queryAllByRole("listitem")).toHaveLength(0);
+    }
+    expect(screen.queryByLabelText("Username")).toBeNull();
+
     fireEvent.change(within(todo).getByLabelText("Description"), { target: { value: "Buy milk" } });
     fireEvent.click(within(todo).getByRole("button", { name: "Add" }));
     await within(todo).findByText("Buy milk");
@@ -81,6 +88,7 @@ it("log in, add an item, move it, and find it after a reload, against the real s
     render(<App />);
     await within(await screen.findByRole("region", { name: "Doing" })).findByText("Buy milk");
     expect(within(screen.getByRole("region", { name: "Todo" })).queryByText("Buy milk")).toBeNull();
+    expect(screen.queryByLabelText("Username")).toBeNull();
   } finally {
     await server.stop();
   }

@@ -17,60 +17,6 @@ function stubApi(handler: (url: string, init?: RequestInit) => Response) {
 }
 
 const loggedOut = () => Response.json({ error: "Not logged in" }, { status: 401 });
-const emptyTodoList = () =>
-  Response.json({
-    columns: [
-      { name: "Todo", items: [] },
-      { name: "Doing", items: [] },
-      { name: "Done", items: [] },
-    ],
-  });
-
-it("shows the login form when the todo list is not available", async () => {
-  stubApi((url) => {
-    if (url === "/api/todo-list") return loggedOut();
-    throw new Error(`unexpected request to ${url}`);
-  });
-
-  render(<App />);
-
-  expect(await screen.findByLabelText("Username")).toBeDefined();
-  expect(screen.getByLabelText("Password")).toBeDefined();
-  expect(screen.getByRole("button", { name: "Log in" })).toBeDefined();
-  expect(screen.queryByRole("region", { name: "Todo" })).toBeNull();
-});
-
-it("logging in shows three empty columns: Todo, Doing, Done", async () => {
-  let loggedIn = false;
-  const fetchMock = stubApi((url) => {
-    if (url === "/api/todo-list") return loggedIn ? emptyTodoList() : loggedOut();
-    if (url === "/api/login") {
-      loggedIn = true;
-      return new Response(null, { status: 204 });
-    }
-    throw new Error(`unexpected request to ${url}`);
-  });
-
-  render(<App />);
-  fireEvent.change(await screen.findByLabelText("Username"), { target: { value: "someone" } });
-  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "a-password" } });
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
-
-  await screen.findByRole("region", { name: "Todo" });
-  const columns = screen.getAllByRole("region");
-  expect(columns.map((column) => column.getAttribute("aria-label"))).toEqual(["Todo", "Doing", "Done"]);
-  for (const column of columns) {
-    expect(within(column).queryAllByRole("listitem")).toHaveLength(0);
-  }
-  expect(screen.queryByLabelText("Username")).toBeNull();
-
-  const loginCall = fetchMock.mock.calls.find(([url]) => url === "/api/login");
-  expect(loginCall?.[1]?.method).toBe("POST");
-  expect(JSON.parse(loginCall?.[1]?.body as string)).toEqual({
-    username: "someone",
-    password: "a-password",
-  });
-});
 
 it("a wrong username or password shows the same message and keeps the login form", async () => {
   stubApi((url) => {
@@ -90,19 +36,6 @@ it("a wrong username or password shows the same message and keeps the login form
   expect(alert.textContent).toBe("Invalid username or password");
   expect(screen.getByLabelText("Username")).toBeDefined();
   expect(screen.queryByRole("region", { name: "Todo" })).toBeNull();
-});
-
-it("a page reload with a valid session shows the todo list without the login form", async () => {
-  const fetchMock = stubApi((url) => {
-    if (url === "/api/todo-list") return emptyTodoList();
-    throw new Error(`unexpected request to ${url}`);
-  });
-
-  render(<App />);
-
-  expect(await screen.findByRole("region", { name: "Todo" })).toBeDefined();
-  expect(screen.queryByLabelText("Username")).toBeNull();
-  expect(fetchMock).toHaveBeenCalledWith("/api/todo-list");
 });
 
 const COLUMN_NAMES = ["Todo", "Doing", "Done"] as const;
@@ -250,17 +183,6 @@ function dragItem(description: string, fromColumn: string, dropOn: HTMLElement) 
   fireEvent.drop(dropOn, { dataTransfer });
   fireEvent.dragEnd(item, { dataTransfer });
 }
-
-it("dragging an item onto another column moves it to the bottom of that column", async () => {
-  stubTodoListApi({ Todo: ["Buy milk"], Doing: ["Write report"] });
-
-  render(<App />);
-  await within(await screen.findByRole("region", { name: "Todo" })).findByText("Buy milk");
-  dragItem("Buy milk", "Todo", regionFor("Doing"));
-
-  await waitFor(() => expect(itemsIn("Doing")).toEqual(["Write report", "Buy milk"]));
-  expect(itemsIn("Todo")).toEqual([]);
-});
 
 it("dragging an item back from Done to Todo moves it to the bottom of Todo", async () => {
   stubTodoListApi({ Todo: ["Buy milk"], Done: ["Walk dog"] });
