@@ -4,6 +4,9 @@ import { isValidLogin } from "./auth";
 
 const COLUMN_NAMES = ["Todo", "Doing", "Done"];
 
+type Item = { description: string };
+type Column = { name: string; items: Item[] };
+
 function readJson(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -41,7 +44,14 @@ export function createServer(): http.Server {
   // Sessions and the todo list live inside this server instance. A restart creates a new
   // instance, so old sessions are gone and the todo list starts empty.
   const sessions = new Set<string>();
-  const todoList = { columns: COLUMN_NAMES.map((name) => ({ name, items: [] })) };
+  const todoList: { columns: Column[] } = {
+    columns: COLUMN_NAMES.map((name): Column => ({ name, items: [] })),
+  };
+
+  function hasSession(req: http.IncomingMessage): boolean {
+    const token = sessionToken(req);
+    return token !== undefined && sessions.has(token);
+  }
 
   return http.createServer(async (req, res) => {
     if (req.method === "GET" && req.url === "/api/hello") {
@@ -67,13 +77,30 @@ export function createServer(): http.Server {
     }
 
     if (req.method === "GET" && req.url === "/api/todo-list") {
-      const token = sessionToken(req);
-      if (!token || !sessions.has(token)) {
+      if (!hasSession(req)) {
         sendJson(res, 401, { error: "Not logged in" });
         return;
       }
 
       sendJson(res, 200, todoList);
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/api/todo-list/items") {
+      if (!hasSession(req)) {
+        sendJson(res, 401, { error: "Not logged in" });
+        return;
+      }
+
+      const body: unknown = await readJson(req).catch(() => null);
+      const { description } = (body ?? {}) as Record<string, unknown>;
+      if (typeof description !== "string" || description.trim() === "") {
+        sendJson(res, 400, { error: "Description is required" });
+        return;
+      }
+
+      todoList.columns[0].items.push({ description: description.trim() });
+      sendJson(res, 201, todoList);
       return;
     }
 

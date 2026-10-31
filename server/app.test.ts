@@ -170,3 +170,149 @@ describe("todo list", () => {
     }
   });
 });
+
+function postItem(baseUrl: string, cookie: string, body: string): Promise<Response> {
+  return fetch(`${baseUrl}/api/todo-list/items`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: cookie },
+    body,
+  });
+}
+
+// The board after the given descriptions were added to Todo, in order.
+function boardWithTodo(descriptions: string[]) {
+  return {
+    columns: [
+      { name: "Todo", items: descriptions.map((description) => ({ description })) },
+      { name: "Doing", items: [] },
+      { name: "Done", items: [] },
+    ],
+  };
+}
+
+describe("add item", () => {
+  it("POST /api/todo-list/items with a session adds the item to Todo and replies with the board", async () => {
+    const server = createServer();
+    const baseUrl = await listen(server);
+
+    try {
+      const login = await postLogin(
+        baseUrl,
+        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
+      );
+      const cookie = sessionCookieFrom(login);
+
+      const added = await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }));
+
+      expect(added.status).toBe(201);
+      expect(await added.json()).toEqual(boardWithTodo(["Buy milk"]));
+
+      const response = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
+      expect(await response.json()).toEqual(boardWithTodo(["Buy milk"]));
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("each new item goes to the bottom of Todo, after the items already there", async () => {
+    const server = createServer();
+    const baseUrl = await listen(server);
+
+    try {
+      const login = await postLogin(
+        baseUrl,
+        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
+      );
+      const cookie = sessionCookieFrom(login);
+
+      await postItem(baseUrl, cookie, JSON.stringify({ description: "Buy milk" }));
+      const added = await postItem(baseUrl, cookie, JSON.stringify({ description: "Walk dog" }));
+
+      expect(await added.json()).toEqual(boardWithTodo(["Buy milk", "Walk dog"]));
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("surrounding spaces are trimmed from the description", async () => {
+    const server = createServer();
+    const baseUrl = await listen(server);
+
+    try {
+      const login = await postLogin(
+        baseUrl,
+        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
+      );
+      const cookie = sessionCookieFrom(login);
+
+      const added = await postItem(baseUrl, cookie, JSON.stringify({ description: "  Buy milk  " }));
+
+      expect(await added.json()).toEqual(boardWithTodo(["Buy milk"]));
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("a blank, whitespace-only, missing or non-text description gets a 400 and adds nothing", async () => {
+    const server = createServer();
+    const baseUrl = await listen(server);
+
+    try {
+      const login = await postLogin(
+        baseUrl,
+        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
+      );
+      const cookie = sessionCookieFrom(login);
+
+      const badBodies = [
+        JSON.stringify({ description: "" }),
+        JSON.stringify({ description: "   " }),
+        JSON.stringify({ description: "\n\t " }),
+        JSON.stringify({}),
+        JSON.stringify({ description: 42 }),
+        "not json",
+      ];
+
+      for (const body of badBodies) {
+        const response = await postItem(baseUrl, cookie, body);
+
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({ error: "Description is required" });
+      }
+
+      const board = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
+      expect(await board.json()).toEqual(boardWithTodo([]));
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("POST /api/todo-list/items without a valid session replies 401 and adds nothing", async () => {
+    const server = createServer();
+    const baseUrl = await listen(server);
+
+    try {
+      const login = await postLogin(
+        baseUrl,
+        JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
+      );
+      const cookie = sessionCookieFrom(login);
+      const body = JSON.stringify({ description: "Buy milk" });
+
+      const noCookie = await fetch(`${baseUrl}/api/todo-list/items`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+      expect(noCookie.status).toBe(401);
+
+      const unknownCookie = await postItem(baseUrl, "session=not-a-real-token", body);
+      expect(unknownCookie.status).toBe(401);
+
+      const board = await fetch(`${baseUrl}/api/todo-list`, { headers: { Cookie: cookie } });
+      expect(await board.json()).toEqual(boardWithTodo([]));
+    } finally {
+      await close(server);
+    }
+  });
+});
