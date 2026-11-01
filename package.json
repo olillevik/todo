@@ -8,7 +8,8 @@
     "dev:api": "tsx watch server/index.ts",
     "dev:ui": "vite",
     "build": "tsc --noEmit && vite build",
-    "check": "npm run build && npm test"
+    "scan": "command -v trivy >/dev/null 2>&1 || { echo 'scan: trivy is not installed. Install it with: brew install trivy' >&2; exit 1; }; trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --include-dev-deps --skip-dirs node_modules,dist --exit-code 1 --no-progress .",
+    "check": "npm run scan && npm run build && npm test"
   },
   "type": "module",
   "dependencies": {

@@ -29,4 +29,22 @@ npm test
 npm run build
 ```
 
-To run the build and the tests in one command, use `npm run check`. It runs the build, then the tests, and exits non-zero if either fails. CI runs the same two checks as separate jobs.
+## Security scan
+
+The security scan uses [trivy](https://trivy.dev). Install it once on your machine:
+
+```sh
+brew install trivy
+```
+
+Run the scan on demand:
+
+```sh
+npm run scan
+```
+
+It scans the lockfile (dev dependencies included) and the source for HIGH and CRITICAL vulnerabilities that have a fix, and for secrets. It exits non-zero when it finds one, and it fails with an install hint when trivy is not installed. It skips `node_modules` and `dist`.
+
+## Check
+
+To run the scan, the build and the tests in one command, use `npm run check`. It runs them in that order and exits non-zero if any of them fails. CI runs the same checks as separate jobs, and the scan runs as its own `security-scan` job. Install trivy before you run `npm run check`.
