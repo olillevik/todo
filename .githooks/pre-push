@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+# Pre-push hook: runs `npm run check` (lint, trivy scan, build, tests) before a push goes out.
+# Opt-in: see the "Pre-push hook" section of README.md for how to install it.
+
+root=$(git rev-parse --show-toplevel) || exit 1
+cd "$root" || exit 1
+
+# git passes the refs being pushed on stdin. The check does not need them, so discard them.
+cat > /dev/null
+
+if npm run check; then
+  exit 0
+fi
+
+echo "pre-push: push stopped because npm run check failed. The failing check is shown above." >&2
+exit 1

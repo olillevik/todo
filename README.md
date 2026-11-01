@@ -51,3 +51,15 @@ It scans the lockfile (dev dependencies included) and the source for HIGH and CR
 ## Check
 
 To run lint, the scan, the build and the tests in one command, use `npm run check`. It runs them in that order and exits non-zero if any of them fails. Install trivy before you run `npm run check`. CI runs the same checks as separate jobs: `lint`, `build`, `test` and `security-scan`.
+
+## Pre-push hook
+
+The repo has an opt-in git hook, `.githooks/pre-push`, that runs `npm run check` before every push. If the check fails, the push is stopped and the output shows which check failed. The hook needs trivy installed, the same as `npm run check`.
+
+To install it in your clone, run this from the repo root:
+
+```sh
+cp .githooks/pre-push "$(git rev-parse --git-path hooks/pre-push)"
+```
+
+To skip the hook for one push, use `git push --no-verify`. The hook is a local check, not a lock: CI remains the merge gate.
