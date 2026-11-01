@@ -44,11 +44,13 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "26"
-      # trivy is pinned to the same version as local (brew). The sha256 comes from the release's checksums file.
-      - name: Install trivy 0.76.1
+      # CI pins trivy 0.76.1, and local installs should match. The sha256 comes from the release's checksums file.
+      - name: Install trivy
+        env:
+          TRIVY_VERSION: "0.76.1"
         run: |
           cd "$RUNNER_TEMP"
-          curl -sSfL -o trivy.tar.gz "https://github.com/aquasecurity/trivy/releases/download/v0.76.1/trivy_0.76.1_Linux-64bit.tar.gz"
+          curl -sSfL -o trivy.tar.gz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
           echo "c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0  trivy.tar.gz" | sha256sum -c -
           mkdir -p bin
           tar -xzf trivy.tar.gz -C bin trivy

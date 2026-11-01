@@ -40,6 +40,8 @@ The security scan uses [trivy](https://trivy.dev). Install it once on your machi
 brew install trivy
 ```
 
+CI pins trivy 0.76.1. Keep the local install at that version, because `brew install trivy` installs whatever version Homebrew currently has.
+
 Run the scan on demand:
 
 ```sh
@@ -59,7 +61,9 @@ The repo has an opt-in git hook, `.githooks/pre-push`, that runs `npm run check`
 To install it in your clone, run this from the repo root:
 
 ```sh
-cp .githooks/pre-push "$(git rev-parse --git-path hooks/pre-push)"
+cp .githooks/pre-push "$(git rev-parse --git-common-dir)/hooks/pre-push"
 ```
 
-To skip the hook for one push, use `git push --no-verify`. The hook is a local check, not a lock: CI remains the merge gate.
+The copy goes into this clone's own `.git/hooks` and is not linked to `.githooks/pre-push`, so run the copy again after that file changes.
+
+The hook can be skipped with `git push --no-verify`, so it is a check, not a lock. CI runs the same checks on every pull request, and merging is gated on those checks once branch protection requires them.
