@@ -7,7 +7,8 @@
     "dev": "concurrently -k -n api,ui -c blue,green \"npm:dev:api\" \"npm:dev:ui\"",
     "dev:api": "tsx watch server/index.ts",
     "dev:ui": "vite",
-    "build": "tsc --noEmit && vite build"
+    "build": "tsc --noEmit && vite build",
+    "check": "npm run build && npm test"
   },
   "type": "module",
   "dependencies": {

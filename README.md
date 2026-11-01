@@ -28,3 +28,5 @@ To run one side on its own, use `npm run dev:api` or `npm run dev:ui`.
 npm test
 npm run build
 ```
+
+To run the build and the tests in one command, use `npm run check`. It runs the build, then the tests, and exits non-zero if either fails. CI runs the same two checks as separate jobs.
