@@ -10,19 +10,17 @@ Install dependencies once:
 npm install
 ```
 
-Start the API on http://127.0.0.1:3001 in one terminal:
+Start the API and the UI together:
 
 ```sh
-npm run dev:api
+npm run dev
 ```
 
-Start the UI in another terminal:
-
-```sh
-npm run dev:ui
-```
+The API runs on http://127.0.0.1:3001 and the UI on http://localhost:5173. Output lines are labelled `api` or `ui`. Ctrl-C stops both.
 
 Open http://localhost:5173. The UI calls `/api/*` on its own port, and Vite forwards those requests to the API.
+
+To run one side on its own, use `npm run dev:api` or `npm run dev:ui`.
 
 ## Test and build
 
