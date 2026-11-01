@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import "./App.css";
 import { getTodoList, type Column } from "./api";
 import { LoginForm } from "./LoginForm";
@@ -10,17 +10,17 @@ export function App() {
   const [view, setView] = useState<View>({ status: "checking" });
 
   // Any failure to load the todo list means the user needs to log in.
-  function loadTodoList() {
+  const loadTodoList = useCallback(() => {
     getTodoList()
       .then((result) =>
         setView(result.ok ? { status: "logged-in", columns: result.columns } : { status: "logged-out" }),
       )
       .catch(() => setView({ status: "logged-out" }));
-  }
+  }, []);
 
   useEffect(() => {
     loadTodoList();
-  }, []);
+  }, [loadTodoList]);
 
   function showColumns(columns: Column[]) {
     setView({ status: "logged-in", columns });

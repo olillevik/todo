@@ -82,9 +82,9 @@ function stubTodoListApi(
       const itemId = moveMatch[1];
       const target = (JSON.parse(init.body as string) as { column: ColumnName }).column;
       const source = COLUMN_NAMES.find((name) => itemsByColumn[name].some((item) => item.id === itemId));
-      if (!source) return Response.json({ error: "Item not found" }, { status: 404 });
+      const item = source && itemsByColumn[source].find((candidate) => candidate.id === itemId);
+      if (!source || !item) return Response.json({ error: "Item not found" }, { status: 404 });
       if (source !== target) {
-        const item = itemsByColumn[source].find((candidate) => candidate.id === itemId)!;
         itemsByColumn[source] = itemsByColumn[source].filter((candidate) => candidate !== item);
         itemsByColumn[target].push(item);
       }

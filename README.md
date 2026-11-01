@@ -22,12 +22,15 @@ Open http://localhost:5173. The UI calls `/api/*` on its own port, and Vite forw
 
 To run one side on its own, use `npm run dev:api` or `npm run dev:ui`.
 
-## Test and build
+## Lint, test and build
 
 ```sh
+npm run lint
 npm test
 npm run build
 ```
+
+`npm run lint` runs Biome over the whole repo. Warnings count as failures too.
 
 ## Security scan
 
@@ -47,4 +50,4 @@ It scans the lockfile (dev dependencies included) and the source for HIGH and CR
 
 ## Check
 
-To run the scan, the build and the tests in one command, use `npm run check`. It runs them in that order and exits non-zero if any of them fails. CI runs the same checks as separate jobs, and the scan runs as its own `security-scan` job. Install trivy before you run `npm run check`.
+To run lint, the scan, the build and the tests in one command, use `npm run check`. It runs them in that order and exits non-zero if any of them fails. Install trivy before you run `npm run check`. CI runs the same checks as separate jobs: `lint`, `build`, `test` and `security-scan`.
