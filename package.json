@@ -7,8 +7,9 @@
     "dev": "concurrently -k -n api,ui -c blue,green \"npm:dev:api\" \"npm:dev:ui\"",
     "dev:api": "tsx watch server/index.ts",
     "dev:ui": "vite",
+    "lint": "biome lint --error-on-warnings .",
     "build": "tsc --noEmit && vite build",
-    "check": "npm run build && npm test"
+    "check": "npm run lint && npm run build && npm test"
   },
   "type": "module",
   "dependencies": {
@@ -16,6 +17,7 @@
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.4",
     "@testing-library/react": "^16.3.3",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",

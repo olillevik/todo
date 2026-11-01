@@ -22,11 +22,14 @@ Open http://localhost:5173. The UI calls `/api/*` on its own port, and Vite forw
 
 To run one side on its own, use `npm run dev:api` or `npm run dev:ui`.
 
-## Test and build
+## Lint, test and build
 
 ```sh
+npm run lint
 npm test
 npm run build
 ```
 
-To run the build and the tests in one command, use `npm run check`. It runs the build, then the tests, and exits non-zero if either fails. CI runs the same two checks as separate jobs.
+`npm run lint` runs Biome over the whole repo. Warnings count as failures too.
+
+To run lint, the build and the tests in one command, use `npm run check`. It runs lint first, then the build, then the tests, and exits non-zero if any of them fails. CI runs the same three checks as separate jobs.
