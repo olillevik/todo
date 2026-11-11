@@ -67,3 +67,17 @@ cp .githooks/pre-push "$(git rev-parse --git-common-dir)/hooks/pre-push"
 The copy goes into this clone's own `.git/hooks` and is not linked to `.githooks/pre-push`, so run the copy again after that file changes.
 
 The hook can be skipped with `git push --no-verify`, so it is a check, not a lock. CI runs the same checks on every pull request, and merging is gated on those checks once branch protection requires them.
+
+## Pre-commit hook
+
+The repo has an opt-in git hook, `.githooks/pre-commit`, that runs `npm run check` before every commit. If the check fails, the commit is stopped and the output shows which check failed. The hook needs trivy installed, the same as `npm run check`.
+
+To install it in your clone, run this from the repo root:
+
+```sh
+cp .githooks/pre-commit "$(git rev-parse --git-common-dir)/hooks/pre-commit"
+```
+
+The copy goes into this clone's own `.git/hooks` and is not linked to `.githooks/pre-commit`, so run the copy again after that file changes.
+
+The hook can be skipped with `git commit --no-verify`.
